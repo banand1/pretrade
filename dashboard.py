@@ -24,8 +24,9 @@ def latest_snapshot_date(con):
     df = q(con, "SELECT max(snapshot_date) d FROM snapshot")
     return None if df.empty or pd.isna(df.iloc[0, 0]) else pd.to_datetime(df.iloc[0, 0]).date()
 
-def run_ingest_button(label="Run ingest now"):
+def run_ingest_button(label="Run ingest now", con=None):
     if st.button(label, type="primary"):
+        if con is not None: con.close()
         with st.spinner("Pulling market data…"):
             r = subprocess.run([sys.executable, os.path.join(os.path.dirname(__file__), "ingest.py")],
                                capture_output=True, text=True)
@@ -356,7 +357,7 @@ def main():
         if li: st.caption(f"Last ingest: **{li}**" + (f" · data **{snap_date}**" if snap_date else ""))
         if snap_date and snap_date != today:
             st.info(f"Showing {snap_date}; today's ingest hasn't run.")
-    with top[1]: run_ingest_button()
+    with top[1]: run_ingest_button(con=con)
     use_date = snap_date or today
     ev = gather_events(today)
     regime = _regime_vals(con, use_date)
