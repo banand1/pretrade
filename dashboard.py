@@ -158,80 +158,62 @@ def _regime_vals(con, today):
 
 # --- panels ---
 def panel_overview(con, today, ev, regime):
-    st.subheader("① Market snapshot — events · regime · rates")
+    st.subheader("① Snapshot")
     o, v = ev["opex"], regime.get("vix")
     fs, frt = regime.get("fng_score"), regime.get("fng_rating")
     ydf = q(con, "SELECT label,yld,chg_bps FROM yields WHERE snapshot_date=? "
                  "ORDER BY CASE label WHEN '13-wk' THEN 1 WHEN '5-yr' THEN 2 "
                  "WHEN '10-yr' THEN 3 ELSE 4 END", [today])
     y_map = {r.label: r.yld for r in ydf.itertuples() if pd.notna(r.yld)}
-    # metrics strip
-    c = st.columns(6)
-    c[0].metric("NFP", f"{ev['nfp'].date:%b %d}", f"in {ev['nfp'].calendar_days}d")
-    if ev["fomc"]: c[1].metric("FOMC", f"{ev['fomc'].date:%b %d}", f"in {ev['fomc'].calendar_days}d")
-    c[2].metric("OPEX", f"{o.date:%b %d}", f"{o.trading_days} sess" + (" · WITCH" if o.is_quarterly else ""))
+    # metrics — 3 cols (mobile-friendly)
+    c = st.columns(3)
+    c[0].metric("NFP", f"{ev['nfp'].date:%b %d}", f"{ev['nfp'].calendar_days}d")
+    fomc_str = f" · FOMC {ev['fomc'].date:%b %d}" if ev["fomc"] else ""
+    c[1].metric("OPEX", f"{o.date:%b %d}", f"{o.trading_days}d{' WITCH' if o.is_quarterly else ''}{fomc_str}")
     if v is not None:
         chg, pct = regime.get("vix_chg"), regime.get("vix_pct")
-        d = f"{chg:+.2f} ({pct:+.1f}%)" if chg is not None and pct is not None else None
-        c[3].metric(f"VIX · {vix_zone(v)}", f"{v:.2f}", d, delta_color="inverse")
+        d = f"{chg:+.1f} ({pct:+.0f}%)" if chg is not None and pct is not None else None
+        c[2].metric(f"VIX {vix_zone(v)}", f"{v:.1f}", d, delta_color="inverse")
+    c2 = st.columns(3)
     if fs is not None:
         prev = regime.get("fng_prev")
-        c[4].metric(f"F&G · {frt}", f"{fs:.0f}", f"{fs-prev:+.0f} vs yest" if prev else None)
+        c2[0].metric(f"F&G · {frt}", f"{fs:.0f}", f"{fs-prev:+.0f}" if prev else None)
     if "10-yr" in y_map and "13-wk" in y_map:
         sp = (y_map["10-yr"] - y_map["13-wk"]) * 100
-        c[5].metric("2s10s", f"{sp:+.0f} bps{' INV' if sp < 0 else ''}", f"10y {y_map['10-yr']:.2f}%")
-    # futures strip
+        c2[1].metric("2s10s", f"{sp:+.0f}bps{' INV' if sp < 0 else ''}", f"10y {y_map['10-yr']:.2f}%")
+    c2[2].metric("Qtr-end" if ev["qe_in"] else "Witching",
+                 f"{ev['qe_last']:%b %d}" if ev["qe_in"] else f"{ev['witch'].date:%b %d}",
+                 f"{ev['qe_left']}d left" if ev["qe_in"] else f"{ev['witch'].calendar_days}d")
+    # futures — compact table instead of 6 metric cards
     fut = q(con, "SELECT symbol,close,prev_close,pct_1d FROM snapshot "
                  "WHERE snapshot_date=? AND kind='futures' ORDER BY symbol", [today])
     if not fut.empty:
-        fc = st.columns(len(fut))
-        for col, r in zip(fc, fut.itertuples()):
-            pts = round(r.close - r.prev_close, 2) if pd.notna(r.close) and pd.notna(r.prev_close) else None
-            d = f"{pts:+,.2f} ({r.pct_1d:+.2f}%)" if pts is not None and pd.notna(r.pct_1d) else None
-            col.metric(C.FUTURES.get(r.symbol, r.symbol),
-                       f"{r.close:,.2f}" if pd.notna(r.close) else "—", d)
-    # index table | yields + curve
-    left, right = st.columns([3, 2])
-    with left:
-        df = q(con, "SELECT symbol,close,prev_close,pct_1d,sma20,sma50,sma200,"
-                    "above20,above50,above200 FROM snapshot WHERE snapshot_date=? "
-                    "AND symbol IN ('SPY','QQQ','IWM','DIA') ORDER BY symbol", [today])
-        if not df.empty:
-            df["chg"] = (df["close"] - df["prev_close"]).round(2)
-            df = df.drop(columns=["prev_close"])[["symbol","close","chg","pct_1d",
-                 "sma20","sma50","sma200","above20","above50","above200"]]
-        show_table(df.rename(columns={"chg":"pts","pct_1d":"%1d"}),
-                   signed_cols=["pts","%1d"], bool_cols=["above20","above50","above200"])
-    with right:
-        if not ydf.empty:
-            show_table(ydf.rename(columns={"yld":"yield%","chg_bps":"Δbps"}), signed_cols=["Δbps"])
-            curve = ydf[ydf["yld"].notna()].copy()
-            if len(curve) >= 2:
-                tord = ["13-wk","5-yr","10-yr","30-yr"]
-                base = alt.Chart(curve).encode(
-                    x=alt.X("label:N", sort=tord, title=""),
-                    y=alt.Y("yld:Q", title="Yield %", scale=alt.Scale(zero=False)),
-                    tooltip=["label:N", alt.Tooltip("yld:Q", format=".2f"),
-                             alt.Tooltip("chg_bps:Q", title="Δbps", format="+.1f")])
-                st.altair_chart((base.mark_line(strokeWidth=2.5, color="#2563eb")
-                    + base.mark_point(size=60, filled=True, color="#2563eb")
-                    ).properties(height=160), width="stretch")
+        fut["name"] = fut["symbol"].map(C.FUTURES)
+        fut["pts"] = (fut["close"] - fut["prev_close"]).round(2)
+        fut = fut[["name","close","pts","pct_1d"]]
+        show_table(fut.rename(columns={"pct_1d":"%1d"}), signed_cols=["pts","%1d"])
+    # index table
+    df = q(con, "SELECT symbol,close,prev_close,pct_1d,sma20,sma50,above20,above50 "
+                "FROM snapshot WHERE snapshot_date=? "
+                "AND symbol IN ('SPY','QQQ','IWM','DIA') ORDER BY symbol", [today])
+    if not df.empty:
+        df["pts"] = (df["close"] - df["prev_close"]).round(2)
+        df = df[["symbol","close","pts","pct_1d","sma20","sma50","above20","above50"]]
+        show_table(df.rename(columns={"pct_1d":"%1d"}),
+                   signed_cols=["pts","%1d"], bool_cols=["above20","above50"])
+    # yields — inline
+    if not ydf.empty:
+        show_table(ydf.rename(columns={"yld":"yield%","chg_bps":"Δbps"}), signed_cols=["Δbps"])
     # verdict
     froth = "extreme greed" in (frt or "").lower()
     fear = "extreme fear" in (frt or "").lower()
     if regime.get("qqq_above20") and regime.get("spy_above20") and (v or 99) < C.VIX_ELEVATED and not froth:
         st.success("Risk-on: QQQ & SPY above 20DMA, VIX subdued.")
     elif regime.get("qqq_above20") is False and regime.get("qqq_above50") is False:
-        st.error("Distribution: QQQ below 20 & 50 DMA — theta donation territory.")
-    elif froth: st.warning("Extreme Greed — chase risk high.")
-    elif fear: st.warning("Extreme Fear — contrarian watch, sized small.")
+        st.error("Distribution: QQQ below 20 & 50 DMA.")
+    elif froth: st.warning("Extreme Greed — don't chase.")
+    elif fear: st.warning("Extreme Fear — contrarian watch.")
     else: st.warning("Mixed tape. Be selective.")
-    notes = []
-    if ev["qe_in"]: notes.append(f"Quarter-end rebalance ({ev['qe_left']} sessions left)")
-    if o.holiday_adjusted: notes.append("OPEX shifted off closed 3rd-Friday")
-    for e in ev["extra"]: notes.append(f"{e.name}: {e.date:%b %d}")
-    if not ev["extra"]: notes.append("CPI/PPI/PCE: add dates to config.EXTRA_MACRO_EVENTS")
-    if notes: st.caption(" · ".join(notes))
 
 def panel_sectors(con, today):
     st.subheader("② Sector rotation")
@@ -249,7 +231,7 @@ def panel_sectors(con, today):
     st.caption(f"Leading: **{df.iloc[0]['name']}** · Lagging: **{df.iloc[-1]['name']}**")
 
 def panel_etfs(con, today):
-    st.subheader("③ ETF pullback monitor")
+    st.caption("**ETF pullback monitor**")
     df = q(con, "SELECT symbol,close,pct_1d,off_high20_pct,dist20_pct,dist50_pct,"
                 "above20,above50,pullback_flag FROM snapshot WHERE snapshot_date=? AND kind='etf' "
                 "ORDER BY pullback_flag DESC, off_high20_pct ASC", [today])
@@ -261,7 +243,7 @@ def panel_etfs(con, today):
     st.caption("**pullback_flag** = off 20d high but holding rising 20DMA (buyable dip).")
 
 def panel_watchlist(con, today, ev):
-    st.subheader("④ Watchlist setups")
+    st.caption("**Watchlist setups**")
     df = q(con, """SELECT s.symbol, s.pct_1d, s.off_high20_pct, s.dist20_pct, s.dist50_pct,
                s.pullback_flag, s.setup_score, iv.atm_iv, e.next_earnings
         FROM snapshot s LEFT JOIN iv_atm iv ON iv.symbol=s.symbol AND iv.date=s.snapshot_date
@@ -293,7 +275,7 @@ def panel_watchlist(con, today, ev):
                "HV/IV < 0.8 = IV expensive; > 1.2 = IV cheap. ⚠ = earnings before OPEX.")
 
 def panel_flow(con, today):
-    st.subheader("⑤ Options flow — OI delta, vol/OI")
+    st.caption("**Options flow — OI delta, vol/OI**")
     prev = q(con, "SELECT max(snapshot_date) d FROM options_oi WHERE snapshot_date<?", [today])
     prev_date = None if prev.empty or pd.isna(prev.iloc[0, 0]) else pd.to_datetime(prev.iloc[0, 0]).date()
     cur = q(con, "SELECT symbol,expiry,strike,oi,volume,iv,otm_pct,vol_oi,spot "
@@ -316,7 +298,7 @@ def panel_flow(con, today):
     st.caption(f"vol/OI ≥ {C.VOL_OI_MIN} or ΔOI ≥ {C.OI_DELTA_MIN}. Rising ΔOI = opening interest.")
 
 def panel_news(con, today):
-    st.subheader("⑥ Geo / macro headlines")
+    st.caption("**Geo / macro headlines**")
     df = q(con, "SELECT score,title,source,link FROM news WHERE snapshot_date=? "
                 "ORDER BY score DESC, ts DESC LIMIT 25", [today])
     if df.empty: st.caption("— no headlines —"); return
@@ -343,7 +325,7 @@ def _season_chart(data, name_col, name_map, order, highlight_val, title):
     st.altair_chart(chart, width="stretch")
 
 def panel_seasonality(con, today):
-    st.subheader("⑦ Seasonality")
+    st.caption("**Seasonality**")
     df = q(con, "SELECT date, close FROM prices WHERE symbol='SPY' ORDER BY date")
     if len(df) < 60: st.caption("— need more history —"); return
     df["date"] = pd.to_datetime(df["date"])
@@ -382,14 +364,15 @@ def main():
     ev = gather_events(today)
     regime = _regime_vals(con, use_date)
     render_banner(*compute_banner(today, ev, regime))
+    panel_overview(con, use_date, ev, regime)
+    panel_sectors(con, use_date)
     st.divider()
-    panel_overview(con, use_date, ev, regime); st.divider()
-    panel_sectors(con, use_date); st.divider()
-    panel_etfs(con, use_date); st.divider()
-    panel_watchlist(con, use_date, ev); st.divider()
-    panel_flow(con, use_date); st.divider()
-    panel_news(con, use_date); st.divider()
-    panel_seasonality(con, use_date)
+    tabs = st.tabs(["ETFs", "Watchlist", "Flow", "News", "Seasonality"])
+    with tabs[0]: panel_etfs(con, use_date)
+    with tabs[1]: panel_watchlist(con, use_date, ev)
+    with tabs[2]: panel_flow(con, use_date)
+    with tabs[3]: panel_news(con, use_date)
+    with tabs[4]: panel_seasonality(con, use_date)
     con.close()
 
 if __name__ == "__main__":
