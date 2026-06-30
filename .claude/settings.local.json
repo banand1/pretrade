@@ -4,7 +4,8 @@
       "Bash(taskkill //F //PID 39680)",
       "Bash(tasklist)",
       "Bash(taskkill //F //PID 43468)",
-      "Bash(taskkill //F //PID 40460)"
+      "Bash(taskkill //F //PID 40460)",
+      "Bash(gh auth:*)"
     ]
   }
 }
