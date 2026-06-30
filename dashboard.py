@@ -166,22 +166,24 @@ def panel_overview(con, today, ev, regime):
                  "ORDER BY CASE label WHEN '13-wk' THEN 1 WHEN '5-yr' THEN 2 "
                  "WHEN '10-yr' THEN 3 ELSE 4 END", [today])
     y_map = {r.label: r.yld for r in ydf.itertuples() if pd.notna(r.yld)}
-    # key metrics — compact 1-2 line strip
-    parts = [f"**NFP** {ev['nfp'].date:%b %d} ({ev['nfp'].calendar_days}d)"]
-    if ev["fomc"]: parts.append(f"**FOMC** {ev['fomc'].date:%b %d} ({ev['fomc'].calendar_days}d)")
-    parts.append(f"**OPEX** {o.date:%b %d} ({o.trading_days}d{'·WITCH' if o.is_quarterly else ''})")
+    # key metrics — 3 tight lines
+    row1 = [f"NFP {ev['nfp'].date:%b %d}({ev['nfp'].calendar_days}d)"]
+    if ev["fomc"]: row1.append(f"FOMC {ev['fomc'].date:%b %d}({ev['fomc'].calendar_days}d)")
+    row1.append(f"OPEX {o.date:%b %d}({o.trading_days}d{'·W' if o.is_quarterly else ''})")
+    if ev["qe_in"]: row1.append(f"QE {ev['qe_left']}d")
+    row2 = []
     if v is not None:
-        chg, pct = regime.get("vix_chg"), regime.get("vix_pct")
-        vd = f" {chg:+.1f}" if chg is not None else ""
-        parts.append(f"**VIX** {v:.1f}{vd} _{vix_zone(v)}_")
+        chg = regime.get("vix_chg")
+        row2.append(f"VIX {v:.1f}{f' {chg:+.1f}' if chg else ''} {vix_zone(v)}")
     if fs is not None:
-        parts.append(f"**F&G** {fs:.0f} _{frt}_")
+        row2.append(f"F&G {fs:.0f} {frt}")
+    row3 = []
     if "10-yr" in y_map and "13-wk" in y_map:
         sp = (y_map["10-yr"] - y_map["13-wk"]) * 100
-        parts.append(f"**2s10s** {sp:+.0f}bps{' INV' if sp < 0 else ''}")
-    if ev["qe_in"]:
-        parts.append(f"**Qtr-end** {ev['qe_left']}d left")
-    st.markdown(" · ".join(parts))
+        row3.append(f"2s10s {sp:+.0f}bp{' **INV**' if sp < 0 else ''}")
+    if "10-yr" in y_map: row3.append(f"10y {y_map['10-yr']:.2f}%")
+    if "30-yr" in y_map: row3.append(f"30y {y_map['30-yr']:.2f}%")
+    st.caption(" · ".join(row1) + "  \n" + " · ".join(row2) + "  \n" + " · ".join(row3))
     # futures — compact table instead of 6 metric cards
     fut = q(con, "SELECT symbol,close,prev_close,pct_1d FROM snapshot "
                  "WHERE snapshot_date=? AND kind='futures' ORDER BY symbol", [today])
