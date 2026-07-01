@@ -345,6 +345,56 @@ def panel_seasonality(con, today):
         _season_chart(df, "dow", DA, list(DA.values()), today.weekday(), "DOW")
     st.caption(f"{len(df)} trading days · Blue = current. Accumulates with each ingest.")
 
+def panel_scanner(con, today):
+    st.caption("**Swing scanner — OHLCV + signals (3 months)**")
+    # all scanner + watchlist symbols
+    syms = sorted(set(C.SCANNER_TICKERS + C.WATCHLIST))
+    placeholders = ",".join(["?"] * len(syms))
+    df = q(con, f"SELECT symbol, date, open, high, low, close, volume FROM prices "
+               f"WHERE symbol IN ({placeholders}) ORDER BY symbol, date", syms)
+    if df.empty: st.caption("— no data — run ingest first"); return
+    df["date"] = pd.to_datetime(df["date"])
+    # compute signals per symbol
+    rows = []
+    for sym, g in df.groupby("symbol"):
+        g = g.sort_values("date").tail(63)  # 3 months
+        if len(g) < 2: continue
+        g = g.copy()
+        g["range"] = (g["high"] - g["low"]).round(2)
+        g["%chg"] = (g["close"].pct_change() * 100).round(2)
+        avg_vol = g["volume"].rolling(20, min_periods=5).mean()
+        g["vol_r"] = (g["volume"] / avg_vol).round(1)
+        avg_rng = g["range"].rolling(20, min_periods=5).mean()
+        g["rng_r"] = (g["range"] / avg_rng).round(1)
+        sma20 = g["close"].rolling(20).mean()
+        sma50 = g["close"].rolling(50).mean()
+        g["vs20"] = ((g["close"] - sma20) / sma20 * 100).round(1)
+        g["vs50"] = ((g["close"] - sma50) / sma50 * 100).round(1)
+        rows.append(g)
+    if not rows: st.caption("— no data —"); return
+    all_df = pd.concat(rows)
+    # view mode: latest day summary or per-symbol history
+    view = st.radio("View", ["Latest day (all tickers)", "History (pick symbol)"],
+                    horizontal=True, label_visibility="collapsed")
+    if view == "Latest day (all tickers)":
+        latest = all_df.groupby("symbol").tail(1).copy()
+        latest["date"] = latest["date"].dt.strftime("%m/%d")
+        latest = latest.sort_values("vol_r", ascending=False)
+        cols = ["symbol","date","open","high","low","close","volume",
+                "range","%chg","vol_r","rng_r","vs20","vs50"]
+        show_table(latest[cols], signed_cols=["%chg","vs20","vs50"], height=600)
+        st.caption("**vol_r** = volume / 20d avg (>1.5 = unusual). "
+                   "**rng_r** = range / 20d avg (>1.5 = wide bar). "
+                   "**vs20/vs50** = % distance to SMA.")
+    else:
+        sym = st.selectbox("Symbol", sorted(all_df["symbol"].unique()))
+        hist = all_df[all_df["symbol"] == sym].copy()
+        hist["date"] = hist["date"].dt.strftime("%m/%d")
+        hist = hist.sort_values("date", ascending=False)
+        cols = ["date","open","high","low","close","volume",
+                "range","%chg","vol_r","rng_r","vs20","vs50"]
+        show_table(hist[cols], signed_cols=["%chg","vs20","vs50"], height=500)
+
 # --- main ---
 def main():
     today = dt.date.today()
@@ -367,12 +417,13 @@ def main():
     panel_overview(con, use_date, ev, regime)
     panel_sectors(con, use_date)
     st.divider()
-    tabs = st.tabs(["ETFs", "Watchlist", "Flow", "News", "Seasonality"])
-    with tabs[0]: panel_etfs(con, use_date)
-    with tabs[1]: panel_watchlist(con, use_date, ev)
-    with tabs[2]: panel_flow(con, use_date)
-    with tabs[3]: panel_news(con, use_date)
-    with tabs[4]: panel_seasonality(con, use_date)
+    tabs = st.tabs(["Scanner", "ETFs", "Watchlist", "Flow", "News", "Seasonality"])
+    with tabs[0]: panel_scanner(con, use_date)
+    with tabs[1]: panel_etfs(con, use_date)
+    with tabs[2]: panel_watchlist(con, use_date, ev)
+    with tabs[3]: panel_flow(con, use_date)
+    with tabs[4]: panel_news(con, use_date)
+    with tabs[5]: panel_seasonality(con, use_date)
     con.close()
 
 if __name__ == "__main__":

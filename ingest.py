@@ -245,13 +245,14 @@ def kind_of(sym):
     if sym in C.FUTURES: return "futures"
     if sym in C.SECTORS: return "sector"
     if sym in C.PULLBACK_ETFS: return "etf"
+    if sym in C.SCANNER_TICKERS: return "scanner"
     return "watch"
 
 def run(today=None):
     today = today or dt.date.today()
     con = connect(); create_tables(con)
     universe = (list(C.INDICES) + [C.VIX] + list(C.YIELDS) + list(C.FUTURES)
-                + list(C.SECTORS) + C.PULLBACK_ETFS + C.WATCHLIST)
+                + list(C.SECTORS) + C.PULLBACK_ETFS + C.WATCHLIST + C.SCANNER_TICKERS)
     print(f"[{today}] fetching {len(set(universe))} symbols ...")
     prices = fetch_prices(universe)
     missing = sorted(set(universe) - set(prices))

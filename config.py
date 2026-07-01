@@ -48,6 +48,31 @@ WATCHLIST = [
     "WULF", "GEV", "VST", "RGTI",
 ]
 
+# Scanner — S&P sector leaders + momentum/growth + popular swing names.
+# Combined with WATCHLIST + INDICES + PULLBACK_ETFS → ~100 tickers total.
+SCANNER_TICKERS = [
+    # Mega tech
+    "AAPL", "MSFT", "GOOG", "AMZN", "META", "NVDA", "TSLA", "NFLX",
+    # Semis
+    "AVGO", "AMD", "MU", "QCOM", "ARM", "MRVL", "INTC", "LRCX", "AMAT",
+    # Software / cloud / cyber
+    "PLTR", "CRWD", "NET", "SNOW", "DDOG", "ZS", "PANW", "NOW",
+    # AI / momentum
+    "SMCI", "IONQ", "RKLB", "ANET", "DELL", "MSTR",
+    # Crypto-adjacent
+    "COIN", "MARA", "CLSK", "RIOT",
+    # Energy
+    "XOM", "CVX", "OXY", "SLB",
+    # Financials
+    "JPM", "GS", "BAC", "MS",
+    # Industrials / defense
+    "CAT", "DE", "BA", "LMT", "RTX",
+    # Healthcare
+    "LLY", "UNH", "ABBV", "JNJ",
+    # Consumer
+    "COST", "WMT", "HD",
+]
+
 # --- Parameters ------------------------------------------------------------ #
 MA_PERIODS = [10, 20, 50, 200]
 HIST_DAYS = 420                  # yfinance lookback (covers 200dma + IV-rank window)
